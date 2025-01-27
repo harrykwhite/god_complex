@@ -1,0 +1,35 @@
+{
+    "textures": [
+        "textures.png"
+    ],
+    "fonts": [
+        {
+            "rel_file_path": "fonts/eb_garamond.ttf",
+            "pt_size": 18
+        },
+        {
+            "rel_file_path": "fonts/eb_garamond.ttf",
+            "pt_size": 28
+        },
+        {
+            "rel_file_path": "fonts/eb_garamond.ttf",
+            "pt_size": 36
+        },
+        {
+            "rel_file_path": "fonts/eb_garamond.ttf",
+            "pt_size": 72
+        }
+    ],
+    "shader_progs": [
+        {
+            "vs_rel_file_path": "shaders/blend.vert",
+            "fs_rel_file_path": "shaders/blend.frag"
+        },
+		{
+            "vs_rel_file_path": "shaders/lighting.vert",
+            "fs_rel_file_path": "shaders/lighting.frag"
+        }
+    ],
+    "sounds": [],
+    "music": []
+}
