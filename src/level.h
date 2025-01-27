@@ -9,7 +9,11 @@ constexpr int g_projectile_limit = 1024;
 struct s_player {
     zf4::s_vec_2d pos;
     zf4::s_vec_2d vel;
+
     float rot;
+
+    int hp;
+    int inv_cooldown;
 
     int shoot_cooldown;
 };
@@ -40,6 +44,7 @@ struct s_projectile {
 
 struct s_level {
     s_player player;
+    bool player_active;
 
     zf4::s_static_list<s_enemy, g_enemy_limit> enemies;
     int enemy_spawn_time;

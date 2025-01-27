@@ -36,8 +36,9 @@ static zf4::s_rect& LoadColliderFromSprite(const zf4::s_vec_2d pos, const e_spri
     return collider;
 }
 
-#if 0
 static zf4::s_vec_2d CalcKnockback(const zf4::s_vec_2d pos, const zf4::s_vec_2d inflictor_pos, const float strength) {
+    // TODO: Handle different knockback types.
+
     if (pos == inflictor_pos) {
         return {};
     }
@@ -45,7 +46,15 @@ static zf4::s_vec_2d CalcKnockback(const zf4::s_vec_2d pos, const zf4::s_vec_2d 
     const zf4::s_vec_2d kb_dir = Normal(pos - inflictor_pos);
     return kb_dir * strength;
 }
-#endif
+
+static void HurtPlayer(s_player& player, const int dmg, const zf4::s_vec_2d knockback) {
+    assert(player.inv_cooldown == 0);
+    assert(dmg > 0);
+
+    player.vel += knockback;
+    player.hp -= dmg;
+    player.inv_cooldown = 20;
+}
 
 static zf4::s_static_list<zf4::s_rect, g_enemy_limit> LoadEnemyColliders(const zf4::s_static_list<s_enemy, g_enemy_limit>& enemies, const s_sprites& sprites) {
     zf4::s_static_list<zf4::s_rect, g_enemy_limit> colliders = {
@@ -108,14 +117,18 @@ static zf4::s_matrix_4x4 LoadCameraViewMatrix4x4(const zf4::s_vec_2d cam_pos, co
 
 bool InitLevel(s_level& level, zf4::s_mem_arena& mem_arena) {
     assert(zf4::IsStructZero(level));
+
+    level.player.hp = 100;
+    level.player_active = true;
+
     return true;
 }
 
 bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& sprites, zf4::s_mem_arena& scratch_space) {
     //
-    // Player Movement
+    // Player Movement and Invincibility
     //
-    {
+    if (level.player_active) {
         const zf4::s_vec_2d move_axis = {
             (float)zf4::KeyDown(zf4::ek_key_code_d, window.input_state) - zf4::KeyDown(zf4::ek_key_code_a, window.input_state),
             (float)zf4::KeyDown(zf4::ek_key_code_s, window.input_state) - zf4::KeyDown(zf4::ek_key_code_w, window.input_state)
@@ -126,6 +139,10 @@ bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& s
 
         const zf4::s_vec_2d mouse_cam_pos = ScreenToCameraPos(window.input_state.mouse_pos, level.cam_pos, window.size_cache);
         level.player.rot = zf4::Dir(level.player.pos, mouse_cam_pos);
+
+        if (level.player.inv_cooldown > 0) {
+            --level.player.inv_cooldown; // NOTE: A cooldown timer of 1 actually corresponds to 0 frames of invincibility - fix?
+        }
     }
 
     //
@@ -148,12 +165,14 @@ bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& s
     //
     // Player Shooting
     //
-    if (level.player.shoot_cooldown > 0) {
-        --level.player.shoot_cooldown;
-    } else {
-        if (zf4::MouseButtonDown(zf4::ek_mouse_button_code_left, window.input_state)) {
-            SpawnProjectile(level.player.pos, 12.0f, level.player.rot, level.projectiles);
-            level.player.shoot_cooldown = 10;
+    if (level.player_active) {
+        if (level.player.shoot_cooldown > 0) {
+            --level.player.shoot_cooldown;
+        } else {
+            if (zf4::MouseButtonDown(zf4::ek_mouse_button_code_left, window.input_state)) {
+                SpawnProjectile(level.player.pos, 12.0f, level.player.rot, level.projectiles);
+                level.player.shoot_cooldown = 10;
+            }
         }
     }
 
@@ -183,47 +202,68 @@ bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& s
     //
     // Collision Processing
     //
-
-    // Handle projectiles colliding with the player or enemies.
     {
         const zf4::s_rect player_collider = LoadColliderFromSprite(level.player.pos, ek_sprite_index_player, sprites);
         const auto enemy_colliders = LoadEnemyColliders(level.enemies, sprites);
 
-        int proj_index = 0;
-
-        while (proj_index < level.projectiles.len) {
-            s_projectile& proj = level.projectiles[proj_index];
-            const zf4::s_rect proj_collider = LoadColliderFromSprite(proj.pos, ek_sprite_index_bullet, sprites);
-
-            bool destroy = false;
-
-            if (proj.enemy) {
-                if (zf4::DoRectsIntersect(proj_collider, player_collider)) {
-                    destroy = true;
+        // Handle the player colliding with enemies.
+        if (level.player.inv_cooldown == 0) {
+            for (int i = 0; i < enemy_colliders.len; ++i) {
+                if (zf4::DoRectsIntersect(player_collider, enemy_colliders[i])) {
+                    const zf4::s_vec_2d kb = CalcKnockback(level.player.pos, level.enemies[i].pos, 8.0f);
+                    HurtPlayer(level.player, 1, kb);
+                    break;
                 }
-            } else {
-                for (int i = 0; i < enemy_colliders.len; ++i) {
-                    if (zf4::DoRectsIntersect(proj_collider, enemy_colliders[i])) {
-                        s_enemy& enemy = level.enemies[i];
-                        enemy.vel += zf4::Normal(proj.vel) * 5.0f;
-                        --enemy.hp;
-
-                        destroy = true;
-
-                        break;
-                    }
-                }
-            }
-
-            if (destroy) {
-                s_projectile& end_proj = level.projectiles[level.projectiles.len - 1];
-                proj = end_proj;
-                zf4::ZeroOutStruct(end_proj);
-                --level.projectiles.len;
-            } else {
-                ++proj_index;
             }
         }
+
+        // Handle projectiles colliding with the player or enemies.
+        {
+            int proj_index = 0;
+
+            while (proj_index < level.projectiles.len) {
+                s_projectile& proj = level.projectiles[proj_index];
+                const zf4::s_rect proj_collider = LoadColliderFromSprite(proj.pos, ek_sprite_index_bullet, sprites);
+                const zf4::s_vec_2d proj_knockback = proj.vel * 0.6f;
+
+                bool destroy = false;
+
+                if (proj.enemy) {
+                    if (level.player.inv_cooldown == 0 && zf4::DoRectsIntersect(proj_collider, player_collider)) {
+                        HurtPlayer(level.player, 1, proj_knockback);
+                        destroy = true;
+                    }
+                } else {
+                    for (int i = 0; i < enemy_colliders.len; ++i) {
+                        if (zf4::DoRectsIntersect(proj_collider, enemy_colliders[i])) {
+                            s_enemy& enemy = level.enemies[i];
+                            enemy.vel += proj_knockback;
+                            --enemy.hp;
+
+                            destroy = true;
+
+                            break;
+                        }
+                    }
+                }
+
+                if (destroy) {
+                    s_projectile& end_proj = level.projectiles[level.projectiles.len - 1];
+                    proj = end_proj;
+                    zf4::ZeroOutStruct(end_proj);
+                    --level.projectiles.len;
+                } else {
+                    ++proj_index;
+                }
+            }
+        }
+    }
+
+    //
+    // Process Player Death
+    //
+    if (level.player.hp <= 0) {
+        level.player_active = false;
     }
 
     //
@@ -250,7 +290,7 @@ bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& s
     // Camera
     //
     {
-        const zf4::s_vec_2d dest = level.player.pos;
+        const zf4::s_vec_2d dest = level.player.pos; // We do this even if the player is inactive.
         level.cam_pos = Lerp(level.cam_pos, dest, i_camera_pos_lerp);
     }
 
@@ -270,7 +310,9 @@ bool DrawLevel(s_level& level, zf4::s_draw_phase_state& draw_phase_state, const 
     }
 
     // Draw the player.
-    zf4::SubmitTextureToRenderBatch(0, sprites.src_rects[ek_sprite_index_player], level.player.pos, draw_phase_state, renderer, {0.5f, 0.5f}, {1.0f, 1.0f}, level.player.rot);
+    if (level.player_active) {
+        zf4::SubmitTextureToRenderBatch(0, sprites.src_rects[ek_sprite_index_player], level.player.pos, draw_phase_state, renderer, {0.5f, 0.5f}, {1.0f, 1.0f}, level.player.rot);
+    }
 
     // Draw projectiles.
     for (int i = 0; i < level.projectiles.len; ++i) {
