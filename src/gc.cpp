@@ -10,7 +10,7 @@ static constexpr int i_player_hp_limit = 10;
 
 static constexpr int i_enemy_limit = 256;
 static constexpr int i_enemy_spawn_interval = 90;
-static constexpr int i_enemy_spawn_limit = 10;
+static constexpr int i_enemy_spawn_limit = 8;
 static_assert(i_enemy_spawn_limit <= i_enemy_limit);
 
 static constexpr int i_projectile_limit = 1024;
@@ -23,6 +23,8 @@ static constexpr zf4::s_vec_2d_i i_tilemap_size = {40, 40};
 static constexpr int i_tilemap_tile_cnt = i_tilemap_size.x * i_tilemap_size.y;
 
 static constexpr zf4::s_vec_2d_i i_level_size = i_tilemap_size * i_tile_size;
+
+static constexpr int i_rule_change_interval = 480;
 
 enum e_font {
     ek_font_eb_garamond_18,
@@ -58,13 +60,13 @@ enum e_sprite_index {
 static constexpr zf4::s_static_array<zf4::s_rect_i, eks_sprite_cnt> i_sprite_src_rects = {
     .elems_raw = {
         {0, 0, 1, 1},
-        {10, 2, 28, 28},
-        {0, 40, 24, 24},
-        {24, 40, 16, 16},
-        {42, 10, 4, 4},
-        {40, 16, 16, 16},
-        {0, 8, 8, 8}
-    }
+    {10, 2, 28, 28},
+    {0, 40, 24, 24},
+    {24, 40, 16, 16},
+    {42, 10, 4, 4},
+    {40, 16, 16, 16},
+    {0, 8, 8, 8}
+}
 };
 
 struct s_player {
@@ -121,7 +123,8 @@ struct s_enemy {
 
 struct s_projectile {
     zf4::s_vec_2d pos;
-    zf4::s_vec_2d vel;
+    float spd;
+    float dir;
     bool enemy;
 };
 
@@ -129,10 +132,24 @@ struct s_tilemap {
     zf4::s_static_array<zf4::a_byte, zf4::BitsToBytes(i_tilemap_tile_cnt)> activity;
 };
 
+// NOTE: These are not things the player should be able to break. These are rules which alter the game's mechanics, regardless of player choice.
 enum e_rule_type {
     ek_rule_type_none,
-    ek_rule_type_no_shooting
+    ek_rule_type_inverted_movement,
+    ek_rule_type_inverted_bullets,
+    ek_rule_type_halved_movement_spd,
+
+    eks_rule_type_cnt
 };
+
+static constexpr zf4::s_static_array<const char*, eks_rule_type_cnt> i_rule_type_strs = {
+    "No Rule",
+    "Inverted Movement",
+    "Inverted Bullets",
+    "Halved Movement Speed"
+};
+
+static_assert(i_rule_type_strs.len == eks_rule_type_cnt);
 
 struct s_game {
     s_player player;
@@ -214,7 +231,8 @@ static s_projectile* SpawnProjectile(const zf4::s_vec_2d pos, const float spd, c
     s_projectile& proj = projectiles[index];
     assert(zf4::IsStructZero(proj));
     proj.pos = pos;
-    proj.vel = zf4::Dir(dir) * spd;
+    proj.spd = spd;
+    proj.dir = dir;
     proj.enemy = enemy;
 
     return &proj;
@@ -338,6 +356,8 @@ static bool InitGame(const zf4::s_game_ptrs& game_ptrs) {
         ActivateTile(i_tilemap_size.x - 1, y, game->tilemap);
     }
 
+    game->rule_change_time = i_rule_change_interval;
+
     return true;
 }
 
@@ -347,37 +367,31 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
     //
     // Rule Updating
     //
-    if (game->rule_change_time < 300) {
-        ++game->rule_change_time;
+    if (game->rule_change_time > 0) {
+        --game->rule_change_time;
     } else {
-        zf4::Log("Rule switch!");
-
-        game->rule_type = game->rule_type == ek_rule_type_none ? ek_rule_type_no_shooting : ek_rule_type_none;
-
-        switch (game->rule_type) {
-            case ek_rule_type_none:
-                zf4::Log("Play as normal!");
-                break;
-
-            case ek_rule_type_no_shooting:
-                zf4::Log("No shooting!");
-                break;
-        }
-
-        game->rule_change_time = 0;
+        game->rule_type = (e_rule_type)((game->rule_type + 1) % eks_rule_type_cnt);
+        game->rule_change_time = i_rule_change_interval;
     }
 
     //
     // Player Movement and Invincibility
     //
     if (game->player_active) {
-        const zf4::s_vec_2d move_axis = {
+        zf4::s_vec_2d move_axis = {
             static_cast<float>(zf4::KeyDown(zf4::ek_key_code_d, game_ptrs.window.input_state) - zf4::KeyDown(zf4::ek_key_code_a, game_ptrs.window.input_state)),
             static_cast<float>(zf4::KeyDown(zf4::ek_key_code_s, game_ptrs.window.input_state) - zf4::KeyDown(zf4::ek_key_code_w, game_ptrs.window.input_state))
         };
-        const zf4::s_vec_2d vel_lerp_targ = move_axis * i_player_move_spd;
+
+        if (game->rule_type == ek_rule_type_inverted_movement) {
+            move_axis = -move_axis;
+        }
+
+        const zf4::s_vec_2d vel_lerp_targ = move_axis * i_player_move_spd * (game->rule_type == ek_rule_type_halved_movement_spd ? 0.5f : 1.0f);
         game->player.vel = zf4::Lerp(game->player.vel, vel_lerp_targ, i_vel_lerp);
+
         ProcTileCollisions(game->player.vel, LoadColliderFromSprite(game->player.pos, ek_sprite_index_player), game->tilemap);
+
         game->player.pos += game->player.vel;
 
         const zf4::s_vec_2d mouse_cam_pos = ScreenToCameraPos(game_ptrs.window.input_state.mouse_pos, game->cam_pos, game_ptrs.window.size_cache);
@@ -403,7 +417,14 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
     //
     for (int i = 0; i < game->projectiles.len; ++i) {
         s_projectile& projectile = game->projectiles[i];
-        projectile.pos += projectile.vel;
+
+        const zf4::s_vec_2d vel = zf4::LenDir(projectile.spd, projectile.dir); // NOTE: Obviously having to calculate this every tick is not ideal.
+
+        if (game->rule_type == ek_rule_type_inverted_bullets) {
+            projectile.spd -= 0.25f;
+        }
+
+        projectile.pos += vel;
     }
 
     //
@@ -414,12 +435,7 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
             --game->player.shoot_cooldown;
         } else {
             if (zf4::MouseButtonDown(zf4::ek_mouse_button_code_left, game_ptrs.window.input_state)) {
-                if (game->rule_type == ek_rule_type_no_shooting) {
-                    zf4::Log("You failed!");
-                }
-
                 SpawnProjectile(game->player.pos, 12.0f, game->player.rot, false, game->projectiles);
-
                 game->player.shoot_cooldown = 10;
             }
         }
@@ -465,7 +481,7 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
                     --enemy.red.shoot_cooldown;
                 } else {
                     SpawnProjectile(enemy.pos, 8.0f, zf4::RandFloat(0.0f, zf4::g_pi * 2.0f), true, game->projectiles);
-                    enemy.red.shoot_cooldown = 30;
+                    enemy.red.shoot_cooldown = 40;
                 }
 
                 break;
@@ -497,7 +513,7 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
             while (proj_index < game->projectiles.len) {
                 s_projectile& proj = game->projectiles[proj_index];
                 const zf4::s_rect proj_collider = LoadColliderFromSprite(proj.pos, ek_sprite_index_bullet);
-                const zf4::s_vec_2d proj_knockback = proj.vel * 0.6f;
+                const zf4::s_vec_2d proj_knockback = zf4::LenDir(proj.spd, proj.dir) * 0.6f;
 
                 bool destroy = false;
 
@@ -621,11 +637,24 @@ static bool DrawGame(zf4::s_draw_phase_state& draw_phase_state, const zf4::s_gam
     zf4::ZeroOutStruct(draw_phase_state.view_mat);
     zf4::InitIdentityMatrix4x4(draw_phase_state.view_mat);
 
-    // Draw player health.
+    // Draw player statistics.
     if (game->player_active) {
         char hp_str[20] = {};
         std::snprintf(hp_str, sizeof(hp_str), "HP: %d", game->player.hp);
-        zf4::SubmitStrToRenderBatch(hp_str, 0, {game_ptrs.window.size_cache.x - 10.0f, 10.0f}, zf4::colors::g_white, zf4::ek_str_hor_align_right, zf4::ek_str_ver_align_top, draw_phase_state, game_ptrs.renderer);
+        zf4::SubmitStrToRenderBatch(hp_str, ek_font_eb_garamond_28, {game_ptrs.window.size_cache.x - 10.0f, 10.0f}, zf4::colors::g_white, zf4::ek_str_hor_align_right, zf4::ek_str_ver_align_top, draw_phase_state, game_ptrs.renderer);
+    }
+
+    // Draw rule text.
+    {
+        char str[32] = {};
+        std::snprintf(str, sizeof(str), "%s (%.2f)", i_rule_type_strs[game->rule_type], game->rule_change_time / 60.0f);
+
+        const zf4::s_vec_2d pos = {
+            game_ptrs.window.size_cache.x / 2.0f,
+            (game_ptrs.window.size_cache.y / 6.0f) * 5.0f
+        };
+
+        zf4::SubmitStrToRenderBatch(str, ek_font_eb_garamond_36, pos, zf4::colors::g_white, zf4::ek_str_hor_align_center, zf4::ek_str_ver_align_top, draw_phase_state, game_ptrs.renderer);
     }
 
     // Draw FPS.
