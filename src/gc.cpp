@@ -130,7 +130,7 @@ enum e_render_surface {
     eks_render_surface_cnt
 };
 
-static zf4::s_rect& LoadColliderFromSprite(const zf4::s_vec_2d pos, const e_sprite_index sprite_index) {
+static zf4::s_rect LoadColliderFromSprite(const zf4::s_vec_2d pos, const e_sprite_index sprite_index) {
     assert(sprite_index >= 0 && sprite_index < eks_sprite_cnt);
 
     zf4::s_rect collider = {
@@ -551,9 +551,17 @@ static bool DrawGame(zf4::s_draw_phase_state& draw_phase_state, const zf4::s_gam
     zf4::ZeroOutStruct(draw_phase_state.view_mat);
     zf4::InitIdentityMatrix4x4(draw_phase_state.view_mat);
 
+    // Draw player health.
+    if (game->player_active) {
+        char hp_str[20] = {};
+        std::snprintf(hp_str, sizeof(hp_str), "HP: %d", game->player.hp);
+        zf4::SubmitStrToRenderBatch(hp_str, 0, {game_ptrs.window.size_cache.x - 10.0f, 10.0f}, zf4::colors::g_white, zf4::ek_str_hor_align_right, zf4::ek_str_ver_align_top, draw_phase_state, game_ptrs.renderer);
+    }
+
+    // Draw FPS.
     char fps_str[20] = {};
     std::snprintf(fps_str, sizeof(fps_str), "FPS: %.2f", fps);
-    SubmitStrToRenderBatch(fps_str, 0, {10.0f, 10.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, zf4::ek_str_hor_align_left, zf4::ek_str_ver_align_top, draw_phase_state, game_ptrs.renderer);
+    SubmitStrToRenderBatch(fps_str, 0, {10.0f, 10.0f}, zf4::colors::g_white, zf4::ek_str_hor_align_left, zf4::ek_str_ver_align_top, draw_phase_state, game_ptrs.renderer);
 
     zf4::SubmitTextureToRenderBatch(0, i_sprite_src_rects[ek_sprite_index_cursor], game_ptrs.window.input_state.mouse_pos, draw_phase_state, game_ptrs.renderer, {0.5f, 0.5f}, {2.0f, 2.0f});
 
