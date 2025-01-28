@@ -593,7 +593,8 @@ static bool DrawGame(zf4::s_draw_phase_state& draw_phase_state, const zf4::s_gam
 
     // Draw the player.
     if (game->player_active) {
-        zf4::SubmitTextureToRenderBatch(0, i_sprite_src_rects[ek_sprite_index_player], game->player.pos, draw_phase_state, game_ptrs.renderer, {0.5f, 0.5f}, {1.0f, 1.0f}, game->player.rot);
+        const float alpha = game->player.inv_cooldown > 0 ? 0.5f + (0.25f * (game->player.inv_cooldown & 1)) : 1.0f;
+        zf4::SubmitTextureToRenderBatch(0, i_sprite_src_rects[ek_sprite_index_player], game->player.pos, draw_phase_state, game_ptrs.renderer, {0.5f, 0.5f}, {1.0f, 1.0f}, game->player.rot, {1.0f, 1.0f, 1.0f, alpha});
     }
 
     // Draw projectiles.
