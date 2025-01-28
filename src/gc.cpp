@@ -24,6 +24,25 @@ static constexpr int i_tilemap_tile_cnt = i_tilemap_size.x * i_tilemap_size.y;
 
 static constexpr zf4::s_vec_2d_i i_level_size = i_tilemap_size * i_tile_size;
 
+enum e_font {
+    ek_font_eb_garamond_18,
+    ek_font_eb_garamond_28,
+    ek_font_eb_garamond_36,
+    ek_font_eb_garamond_72
+};
+
+enum e_shader_prog {
+    ek_shader_prog_blend,
+    ek_shader_prog_lighting
+};
+
+enum e_render_surface {
+    ek_render_surface_level,
+    ek_render_surface_blend,
+
+    eks_render_surface_cnt
+};
+
 enum e_sprite_index {
     ek_sprite_index_pixel,
     ek_sprite_index_player,
@@ -110,6 +129,11 @@ struct s_tilemap {
     zf4::s_static_array<zf4::a_byte, zf4::BitsToBytes(i_tilemap_tile_cnt)> activity;
 };
 
+enum e_rule_type {
+    ek_rule_type_none,
+    ek_rule_type_no_shooting
+};
+
 struct s_game {
     s_player player;
     bool player_active;
@@ -122,25 +146,9 @@ struct s_game {
     zf4::s_vec_2d cam_pos;
 
     s_tilemap tilemap;
-};
 
-enum e_font {
-    ek_font_eb_garamond_18,
-    ek_font_eb_garamond_28,
-    ek_font_eb_garamond_36,
-    ek_font_eb_garamond_72
-};
-
-enum e_shader_prog {
-    ek_shader_prog_blend,
-    ek_shader_prog_lighting
-};
-
-enum e_render_surface {
-    ek_render_surface_level,
-    ek_render_surface_blend,
-
-    eks_render_surface_cnt
+    e_rule_type rule_type;
+    int rule_change_time;
 };
 
 static zf4::s_rect LoadColliderFromSprite(const zf4::s_vec_2d pos, const e_sprite_index sprite_index) {
@@ -337,6 +345,29 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
     const auto game = static_cast<s_game*>(game_ptrs.custom_data);
 
     //
+    // Rule Updating
+    //
+    if (game->rule_change_time < 300) {
+        ++game->rule_change_time;
+    } else {
+        zf4::Log("Rule switch!");
+
+        game->rule_type = game->rule_type == ek_rule_type_none ? ek_rule_type_no_shooting : ek_rule_type_none;
+
+        switch (game->rule_type) {
+            case ek_rule_type_none:
+                zf4::Log("Play as normal!");
+                break;
+
+            case ek_rule_type_no_shooting:
+                zf4::Log("No shooting!");
+                break;
+        }
+
+        game->rule_change_time = 0;
+    }
+
+    //
     // Player Movement and Invincibility
     //
     if (game->player_active) {
@@ -383,7 +414,12 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
             --game->player.shoot_cooldown;
         } else {
             if (zf4::MouseButtonDown(zf4::ek_mouse_button_code_left, game_ptrs.window.input_state)) {
+                if (game->rule_type == ek_rule_type_no_shooting) {
+                    zf4::Log("You failed!");
+                }
+
                 SpawnProjectile(game->player.pos, 12.0f, game->player.rot, false, game->projectiles);
+
                 game->player.shoot_cooldown = 10;
             }
         }
