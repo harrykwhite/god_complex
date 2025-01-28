@@ -1,12 +1,19 @@
 #include "level.h"
 
+#include <algorithm>
 #include "game.h"
+
+constexpr zf4::s_vec_2d_i i_level_size = {800, 800};
 
 constexpr zf4::s_vec_4d i_bg_color = {0.63f, 0.63f, 0.49f, 1.0f};
 
 constexpr float i_vel_lerp = 0.2f;
 
 constexpr float i_player_move_spd = 3.0f;
+
+constexpr int i_enemy_spawn_interval = 90;
+constexpr int i_enemy_spawn_limit = 10;
+static_assert(i_enemy_spawn_limit <= g_enemy_limit);
 
 constexpr zf4::s_static_array<e_sprite_index, eks_enemy_type_cnt> i_enemy_type_sprite_indexes = {
     ek_sprite_index_red_enemy,
@@ -118,8 +125,11 @@ static zf4::s_matrix_4x4 LoadCameraViewMatrix4x4(const zf4::s_vec_2d cam_pos, co
 bool InitLevel(s_level& level, zf4::s_mem_arena& mem_arena) {
     assert(zf4::IsStructZero(level));
 
+    level.player.pos = i_level_size / 2.0f;
     level.player.hp = 100;
     level.player_active = true;
+
+    level.cam_pos = level.player.pos;
 
     return true;
 }
@@ -130,8 +140,8 @@ bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& s
     //
     if (level.player_active) {
         const zf4::s_vec_2d move_axis = {
-            (float)zf4::KeyDown(zf4::ek_key_code_d, window.input_state) - zf4::KeyDown(zf4::ek_key_code_a, window.input_state),
-            (float)zf4::KeyDown(zf4::ek_key_code_s, window.input_state) - zf4::KeyDown(zf4::ek_key_code_w, window.input_state)
+            static_cast<float>(zf4::KeyDown(zf4::ek_key_code_d, window.input_state) - zf4::KeyDown(zf4::ek_key_code_a, window.input_state)),
+            static_cast<float>(zf4::KeyDown(zf4::ek_key_code_s, window.input_state) - zf4::KeyDown(zf4::ek_key_code_w, window.input_state))
         };
         const zf4::s_vec_2d vel_lerp_targ = move_axis * i_player_move_spd;
         level.player.vel = zf4::Lerp(level.player.vel, vel_lerp_targ, i_vel_lerp);
@@ -179,17 +189,22 @@ bool UpdateLevel(s_level& level, const zf4::s_window& window, const s_sprites& s
     //
     // Enemy Spawning
     //
-    if (level.enemy_spawn_time < level.enemies.cap) {
+    if (level.enemy_spawn_time < i_enemy_spawn_interval) {
         ++level.enemy_spawn_time;
     } else {
-        if (level.enemies.len < level.enemies.cap) {
+        if (level.enemies.len < i_enemy_spawn_limit) {
             const int enemy_index = level.enemies.len;
             ++level.enemies.len;
 
             s_enemy& enemy = level.enemies[enemy_index];
             assert(zf4::IsStructZero(enemy));
 
-            enemy.type = zf4::RandPerc() < 0.5f ? ek_enemy_type_red : ek_enemy_type_purple;
+            enemy.pos = {
+                zf4::RandFloat(0.0f, (float)i_level_size.x),
+                zf4::RandFloat(0.0f, (float)i_level_size.y)
+            };
+
+            enemy.type = zf4::RandPerc() < 0.7f ? ek_enemy_type_red : ek_enemy_type_purple;
 
             enemy.hp = i_enemy_type_hps[enemy.type];
         } else {
