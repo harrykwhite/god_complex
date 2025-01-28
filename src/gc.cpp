@@ -6,6 +6,7 @@ static constexpr zf4::s_vec_4d i_bg_color = {0.63f, 0.63f, 0.49f, 1.0f};
 static constexpr float i_vel_lerp = 0.2f;
 
 static constexpr float i_player_move_spd = 3.0f;
+static constexpr int i_player_hp_limit = 10;
 
 static constexpr int i_enemy_limit = 256;
 static constexpr int i_enemy_spawn_interval = 90;
@@ -76,6 +77,13 @@ static constexpr zf4::s_static_array<int, eks_enemy_type_cnt> i_enemy_type_hps =
     5
 };
 
+struct s_red_enemy {
+    int shoot_cooldown;
+};
+
+struct s_purple_enemy {
+};
+
 struct s_enemy {
     zf4::s_vec_2d pos;
     zf4::s_vec_2d vel;
@@ -85,6 +93,11 @@ struct s_enemy {
     int hp;
 
     e_enemy_type type;
+
+    union {
+        s_red_enemy red;
+        s_purple_enemy purple;
+    };
 };
 
 struct s_projectile {
@@ -182,7 +195,7 @@ static zf4::s_static_list<zf4::s_rect, i_enemy_limit> LoadEnemyColliders(const z
     return colliders;
 }
 
-static s_projectile* SpawnProjectile(const zf4::s_vec_2d pos, const float spd, const float dir, zf4::s_static_list<s_projectile, i_projectile_limit>& projectiles) {
+static s_projectile* SpawnProjectile(const zf4::s_vec_2d pos, const float spd, const float dir, const bool enemy, zf4::s_static_list<s_projectile, i_projectile_limit>& projectiles) {
     if (projectiles.len == i_projectile_limit) {
         return nullptr;
     }
@@ -194,6 +207,7 @@ static s_projectile* SpawnProjectile(const zf4::s_vec_2d pos, const float spd, c
     assert(zf4::IsStructZero(proj));
     proj.pos = pos;
     proj.vel = zf4::Dir(dir) * spd;
+    proj.enemy = enemy;
 
     return &proj;
 }
@@ -301,7 +315,7 @@ static bool InitGame(const zf4::s_game_ptrs& game_ptrs) {
     }
 
     game->player.pos = i_level_size / 2.0f;
-    game->player.hp = 100;
+    game->player.hp = i_player_hp_limit;
     game->player_active = true;
 
     game->cam_pos = game->player.pos;
@@ -369,7 +383,7 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
             --game->player.shoot_cooldown;
         } else {
             if (zf4::MouseButtonDown(zf4::ek_mouse_button_code_left, game_ptrs.window.input_state)) {
-                SpawnProjectile(game->player.pos, 12.0f, game->player.rot, game->projectiles);
+                SpawnProjectile(game->player.pos, 12.0f, game->player.rot, false, game->projectiles);
                 game->player.shoot_cooldown = 10;
             }
         }
@@ -401,6 +415,25 @@ static bool GameTick(const zf4::s_game_ptrs& game_ptrs, const double fps) {
         }
 
         game->enemy_spawn_time = 0;
+    }
+
+    //
+    // Enemy Type Ticks
+    //
+    for (int i = 0; i < game->enemies.len; ++i) {
+        s_enemy& enemy = game->enemies[i];
+
+        switch (enemy.type) {
+            case ek_enemy_type_red:
+                if (enemy.red.shoot_cooldown > 0) {
+                    --enemy.red.shoot_cooldown;
+                } else {
+                    SpawnProjectile(enemy.pos, 8.0f, zf4::RandFloat(0.0f, zf4::g_pi * 2.0f), true, game->projectiles);
+                    enemy.red.shoot_cooldown = 30;
+                }
+
+                break;
+        }
     }
 
     //
