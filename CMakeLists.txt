@@ -14,14 +14,7 @@ add_subdirectory(zf4)
 find_package(glfw3 CONFIG REQUIRED)
 
 add_executable(god_complex
-	src/entry.cpp
-	src/game.cpp
-	src/sprites.cpp
-	src/level.cpp
-
-	src/game.h
-	src/level.h
-	src/sprites.h
+	src/gc.cpp
 )
 
 target_include_directories(god_complex PRIVATE
